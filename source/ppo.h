@@ -13,7 +13,7 @@ static const int VAULT_ACTION_DIM  = 16;
 static const int VAULT_STATE_DIM   = 174;  // state[0..173] → vault trunk
 static const int SETUP_STATE_DIM   = 7;    // state[174..180] → setup head
 
-static const int H1  = 256, H2  = 256;    // vault trunk hidden dims
+static const int H1  = 128, H2  = 128;    // vault trunk hidden dims
 static const int SH1 =  64, SH2 =  64;    // setup head hidden dims
 
 // ─────────── Hyperparameters ───────────

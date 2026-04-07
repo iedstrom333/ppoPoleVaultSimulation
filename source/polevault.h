@@ -146,6 +146,9 @@ struct PoleVaultScene
     float peakHipsZ              = 0.0f;
     float standardsX             = 0.40f;
 
+    // When false, bodies spawn at rest so the initial pose is visible
+    bool  applyInitialVelocity = false;
+
     // Carry-over from previous attempt
     float prevStandardsX  = 0.40f;
     float prevOutcome     = 1.0f;  // Timeout
@@ -412,6 +415,12 @@ struct PoleVaultScene
 
         // ── Terminal conditions ──
 
+        // Out-of-bounds: agent slingshotted or tumbled far from the runway
+        if (fabsf(hPos.y) > 5.0f || hPos.z < -3.0f || hPos.x < -20.0f || hPos.x > 5.0f) {
+            prevOutcome = 0.67f;
+            return { -100.0f, true, CompetitionState::Outcome::GroundHit };
+        }
+
         // Cleared: was above bar, bar not touched, now descending
         if (wasAboveBar && !barTouchedThisAttempt && hPos.z < crossbarHeight) {
             prevOutcome = 0.0f;
@@ -538,56 +547,38 @@ private:
             float3 ssz = sz * s;
             float density = massFrac * profile.weightKg / (ssz.x * ssz.y * ssz.z);
             Rigid* b = new Rigid(solver, ssz, density, 0.4f, pos * s);
-            b->velocityLin = v0;
+            if (applyInitialVelocity) b->velocityLin = v0;
             return b;
         };
 
-        float hx = -4.3f;
+float hx = -4.2329f;
 
-        // Positions derived from joint attachment points so gaps are zero at spawn.
-        // Each body center = parent_joint_world + halfsize in Z.
-        // hips center at (hx, 0, 1.02)
-        hips      = makePart({0.35f,0.25f,0.20f}, 0.13f, {hx,  0.00f, 1.020f});
-        // spine bottom at hips+{0,0,+0.10} = (hx,0,1.12), center = 1.12+0.125
-        spine     = makePart({0.25f,0.20f,0.25f}, 0.11f, {hx,  0.00f, 1.245f});
-        // chest bottom at spine+{0,0,+0.125} = (hx,0,1.37), center = 1.37+0.15
-        chest     = makePart({0.36f,0.24f,0.30f}, 0.27f, {hx,  0.00f, 1.520f});
-        // neck bottom at chest+{0,0,+0.15} = (hx,0,1.67), center = 1.67+0.06
-        neck      = makePart({0.10f,0.10f,0.12f}, 0.01f, {hx,  0.00f, 1.730f});
-        // head bottom at neck+{0,0,+0.06} = (hx,0,1.79), center = 1.79+0.12
-        head      = makePart({0.22f,0.22f,0.24f}, 0.07f, {hx,  0.00f, 1.910f});
+        hips      = makePart({0.35f,0.25f,0.20f}, 0.13f, {hx, 0.00f, 1.0966f});
+        spine     = makePart({0.25f,0.20f,0.25f}, 0.11f, {hx, 0.00f, 1.3216f});
+        chest     = makePart({0.36f,0.24f,0.30f}, 0.27f, {hx, 0.00f, 1.5966f});
+        neck      = makePart({0.10f,0.10f,0.12f}, 0.01f, {hx, 0.00f, 1.8066f});
+        head      = makePart({0.22f,0.22f,0.24f}, 0.07f, {hx, 0.00f, 1.9866f});
 
-        // lUpperArm: chest attach at chest_center+{0,+0.12,+0.10} = (hx,0.12,1.62)
-        // lUpperArm bottom rB={0,0,-0.15}, so center = attach + 0.15 - 0.15 = (hx,0.12,1.62)
-        // Actually center = attach_world - rB_in_body = (hx,0.12,1.62)+(0,0,+0.15) = (hx,0.12,1.77) NO
-        // rB={0,0,-0.15} means joint is at local -0.15z = bottom of arm
-        // so world_joint=(hx,0.12,1.62), arm_center = world_joint - (0,0,-0.15) = (hx,0.12,1.77)
-        lUpperArm = makePart({0.09f,0.09f,0.30f}, 0.03f, {hx,     0.12f, 1.770f});
-        // lForearm: attach at lUpperArm_center+(0,0,+0.15)=(hx,0.12,1.92), rB={0,0,-0.135}
-        // center = (hx,0.12,1.92)+(0,0,0.135) = (hx,0.12,2.055)
-        lForearm  = makePart({0.07f,0.07f,0.27f}, 0.02f, {hx,     0.12f, 2.055f});
-        // lHand: attach at lForearm_center+(0,0,+0.135)=(hx,0.12,2.19), rB={0,0,-0.05}
-        // center = (hx,0.12,2.19)+(0,0,0.05) = (hx,0.12,2.24)
-        lHand     = makePart({0.09f,0.05f,0.10f}, 0.007f,{hx,     0.12f, 2.240f});
+        lUpperArm = makePart({0.09f,0.09f,0.30f}, 0.03f,  {-3.9822f, 0.1200f, 1.7701f});
+        lUpperArm->positionAng = {0.0f, 0.5048f, 0.0f, 0.8633f};
+        lForearm  = makePart({0.07f,0.07f,0.27f}, 0.02f,  {-3.7338f, 0.1200f, 1.9099f});
+        lForearm->positionAng  = {0.0f, 0.5048f, 0.0f, 0.8633f};
+        lHand     = makePart({0.09f,0.05f,0.10f}, 0.007f, {-3.5726f, 0.1200f, 2.0007f});
+        lHand->positionAng     = {0.0f, 0.5048f, 0.0f, 0.8633f};
 
-        rUpperArm = makePart({0.09f,0.09f,0.30f}, 0.03f, {hx,    -0.12f, 1.770f});
-        rForearm  = makePart({0.07f,0.07f,0.27f}, 0.02f, {hx,    -0.12f, 2.055f});
-        rHand     = makePart({0.09f,0.05f,0.10f}, 0.007f,{hx,    -0.12f, 2.240f});
+        rUpperArm = makePart({0.09f,0.09f,0.30f}, 0.03f,  {-4.1941f, -0.1200f, 1.8415f});
+        rUpperArm->positionAng = {0.0f, 0.1305f, 0.0f, 0.9914f};
+        rForearm  = makePart({0.07f,0.07f,0.27f}, 0.02f,  {-4.1203f, -0.1200f, 2.1168f});
+        rForearm->positionAng  = {0.0f, 0.1305f, 0.0f, 0.9914f};
+        rHand     = makePart({0.09f,0.05f,0.10f}, 0.007f, {-4.0724f, -0.1200f, 2.2955f});
+        rHand->positionAng     = {0.0f, 0.1305f, 0.0f, 0.9914f};
 
-        // lUpperLeg: hips attach at hips_center+{0,+0.09,-0.10}=(hx,0.09,0.92)
-        // rB={0,0,+0.215} means joint at local +0.215z = top of leg
-        // center = (hx,0.09,0.92)-(0,0,0.215) = (hx,0.09,0.705)
-        lUpperLeg = makePart({0.14f,0.14f,0.43f}, 0.11f, {hx,  0.09f, 0.705f});
-        // lLowerLeg: attach at lUpperLeg_center+(0,0,-0.215)=(hx,0.09,0.49), rB={0,0,+0.20}
-        // center = (hx,0.09,0.49)-(0,0,0.20) = (hx,0.09,0.29)
-        lLowerLeg = makePart({0.09f,0.09f,0.40f}, 0.05f, {hx,  0.09f, 0.290f});
-        // lFoot: attach at lLowerLeg_center+(0,0,-0.20)=(hx,0.09,0.09), rB={-0.05,0,+0.045}
-        // center = (hx,0.09,0.09)-(-0.05,0,0.045) = (hx+0.05,0.09,0.045)
-        lFoot     = makePart({0.25f,0.10f,0.09f}, 0.01f, {hx+0.05f, 0.09f, 0.045f});
-
-        rUpperLeg = makePart({0.14f,0.14f,0.43f}, 0.11f, {hx, -0.09f, 0.705f});
-        rLowerLeg = makePart({0.09f,0.09f,0.40f}, 0.05f, {hx, -0.09f, 0.290f});
-        rFoot     = makePart({0.25f,0.10f,0.09f}, 0.01f, {hx+0.05f,-0.09f, 0.045f});
+        lUpperLeg = makePart({0.14f,0.14f,0.43f}, 0.11f, {hx,  0.09f, 0.7816f});
+        lLowerLeg = makePart({0.09f,0.09f,0.40f}, 0.05f, {hx,  0.09f, 0.3666f});
+        lFoot     = makePart({0.25f,0.10f,0.09f}, 0.01f, {hx+0.05f, 0.09f, 0.1216f});
+        rUpperLeg = makePart({0.14f,0.14f,0.43f}, 0.11f, {hx, -0.09f, 0.7816f});
+        rLowerLeg = makePart({0.09f,0.09f,0.40f}, 0.05f, {hx, -0.09f, 0.3666f});
+        rFoot     = makePart({0.25f,0.10f,0.09f}, 0.01f, {hx+0.05f,-0.09f, 0.1216f});
 
         // Populate parts array (index 0 = hips, then the 16 others)
         parts[0]  = hips;
@@ -598,19 +589,20 @@ private:
         parts[11] = lUpperLeg; parts[12] = lLowerLeg;parts[13] = lFoot;
         parts[14] = rUpperLeg; parts[15] = rLowerLeg;parts[16] = rFoot;
 
-        // ── Joints (hard pin, free rotation) ──
+        // ── Joints: finite linear stiffness (same as pole inter-segment — stable, no C0Lin drift),
+        //    zero angular stiffness = free rotation, limits enforced by JointLimit springs ──
         auto J = [&](Rigid* a, Rigid* b, float3 rA, float3 rB) {
-            new Joint(solver, a, b, rA*s, rB*s, 1e5f, 0.0f);
+            new Joint(solver, a, b, rA*s, rB*s, 5e4f, 0.0f);
         };
 
         J(hips,      spine,    {0,0,+0.100f}, {0,0,-0.125f});
         J(spine,     chest,    {0,0,+0.125f}, {0,0,-0.150f});
         J(chest,     neck,     {0,0,+0.150f}, {0,0,-0.060f});
         J(neck,      head,     {0,0,+0.060f}, {0,0,-0.120f});
-        J(chest,     lUpperArm,{0,+0.12f,+0.100f}, {0,0,-0.150f});
-        J(lUpperArm, lForearm, {0,0,+0.150f}, {0,0,-0.135f});
+        J(chest,     lUpperArm,{0,+0.12f,+0.100f}, {-0.0589f,0.0000f,-0.2545f});
+        J(lUpperArm, lForearm, {0,0,+0.150f}, {0.0000f,0.0000f,-0.1350f});
         J(lForearm,  lHand,    {0,0,+0.135f}, {0,0,-0.050f});
-        J(chest,     rUpperArm,{0,-0.12f,+0.100f},{0,0,-0.150f});
+        J(chest,     rUpperArm,{0,-0.12f,+0.100f},{0.0000f,0.0000f,-0.1500f});
         J(rUpperArm, rForearm, {0,0,+0.150f}, {0,0,-0.135f});
         J(rForearm,  rHand,    {0,0,+0.135f}, {0,0,-0.050f});
         J(hips,      lUpperLeg,{0,+0.09f,-0.100f},{0,0,+0.215f});
@@ -620,56 +612,41 @@ private:
         J(rUpperLeg, rLowerLeg,{0,0,-0.215f}, {0,0,+0.200f});
         J(rLowerLeg, rFoot,    {0,0,-0.200f}, {-0.05f,0,+0.045f});
 
-        // ── Angular joint limits ──
-        auto L = [&](Rigid* a, Rigid* b, float3 ax, float mn, float mx, float k=1e5f) {
+        // ── Angular joint limits (wide safe ranges for vault pose) ──
+        auto L = [&](Rigid* a, Rigid* b, float3 ax, float mn, float mx, float k=5e3f) {
             new JointLimit(solver, a, b, ax, rad(mn), rad(mx), k);
         };
         // Spine
-        L(hips,spine,     {0,1,0}, -30.f, +80.f);
-        L(hips,spine,     {1,0,0}, -30.f, +30.f);
-        L(hips,spine,     {0,0,1}, -45.f, +45.f);
+        L(hips,  spine,     {0,1,0}, -45.f, +90.f);
+        L(hips,  spine,     {1,0,0}, -45.f, +45.f);
         // Chest
-        L(spine,chest,    {0,1,0}, -15.f, +25.f);
-        L(spine,chest,    {1,0,0}, -20.f, +20.f);
-        L(spine,chest,    {0,0,1}, -30.f, +30.f);
-        // Neck
-        L(chest,neck,     {0,1,0}, -50.f, +50.f);
-        L(chest,neck,     {1,0,0}, -45.f, +45.f);
-        L(chest,neck,     {0,0,1}, -80.f, +80.f);
-        // Head
-        L(neck,head,      {0,1,0}, -10.f, +10.f);
-        L(neck,head,      {1,0,0}, -10.f, +10.f);
-        L(neck,head,      {0,0,1}, -10.f, +10.f);
-        // Shoulders
-        L(chest,lUpperArm,{0,1,0}, -60.f,+180.f);
-        L(chest,lUpperArm,{1,0,0},   0.f,+180.f);
-        L(chest,lUpperArm,{0,0,1}, -90.f, +90.f);
-        L(chest,rUpperArm,{0,1,0}, -60.f,+180.f);
-        L(chest,rUpperArm,{1,0,0},   0.f,+180.f);
-        L(chest,rUpperArm,{0,0,1}, -90.f, +90.f);
-        // Elbows (-5° buffer absorbs initial pose imprecision)
-        L(lUpperArm,lForearm,{0,1,0},  -5.f,+145.f);
-        L(rUpperArm,rForearm,{0,1,0},  -5.f,+145.f);
+        L(spine, chest,     {0,1,0}, -30.f, +45.f);
+        L(spine, chest,     {1,0,0}, -30.f, +30.f);
+        // Neck / head
+        L(chest, neck,      {0,1,0}, -60.f, +60.f);
+        L(neck,  head,      {0,1,0}, -20.f, +20.f);
+        // Shoulders — full overhead range for vault
+        L(chest, lUpperArm, {0,1,0}, -90.f, +180.f);
+        L(chest, lUpperArm, {1,0,0}, -30.f, +180.f);
+        L(chest, rUpperArm, {0,1,0}, -90.f, +180.f);
+        L(chest, rUpperArm, {1,0,0}, -30.f, +180.f);
+        // Elbows — hinge, full extension to full flex
+        L(lUpperArm, lForearm, {0,1,0}, -10.f, +145.f);
+        L(rUpperArm, rForearm, {0,1,0}, -10.f, +145.f);
         // Wrists
-        L(lForearm,lHand,  {0,1,0}, -70.f, +90.f);
-        L(lForearm,lHand,  {1,0,0}, -25.f, +25.f);
-        L(rForearm,rHand,  {0,1,0}, -70.f, +90.f);
-        L(rForearm,rHand,  {1,0,0}, -25.f, +25.f);
-        // Hips
-        L(hips,lUpperLeg, {0,1,0}, -30.f,+120.f);
-        L(hips,lUpperLeg, {1,0,0}, -20.f, +45.f);
-        L(hips,lUpperLeg, {0,0,1}, -45.f, +45.f);
-        L(hips,rUpperLeg, {0,1,0}, -30.f,+120.f);
-        L(hips,rUpperLeg, {1,0,0}, -20.f, +45.f);
-        L(hips,rUpperLeg, {0,0,1}, -45.f, +45.f);
-        // Knees (-5° buffer)
-        L(lUpperLeg,lLowerLeg,{0,1,0}, -5.f,+140.f);
-        L(rUpperLeg,rLowerLeg,{0,1,0}, -5.f,+140.f);
+        L(lForearm, lHand,  {0,1,0}, -80.f, +90.f);
+        L(rForearm, rHand,  {0,1,0}, -80.f, +90.f);
+        // Hips — wide for vault rock-back
+        L(hips, lUpperLeg,  {0,1,0}, -45.f, +135.f);
+        L(hips, lUpperLeg,  {1,0,0}, -30.f, +60.f);
+        L(hips, rUpperLeg,  {0,1,0}, -45.f, +135.f);
+        L(hips, rUpperLeg,  {1,0,0}, -30.f, +60.f);
+        // Knees — hinge only
+        L(lUpperLeg, lLowerLeg, {0,1,0}, -10.f, +145.f);
+        L(rUpperLeg, rLowerLeg, {0,1,0}, -10.f, +145.f);
         // Ankles
-        L(lLowerLeg,lFoot, {0,1,0}, -20.f, +50.f);
-        L(lLowerLeg,lFoot, {1,0,0}, -20.f, +20.f);
-        L(rLowerLeg,rFoot, {0,1,0}, -20.f, +50.f);
-        L(rLowerLeg,rFoot, {1,0,0}, -20.f, +20.f);
+        L(lLowerLeg, lFoot, {0,1,0}, -30.f, +60.f);
+        L(rLowerLeg, rFoot, {0,1,0}, -30.f, +60.f);
     }
 
     // ── Build pole (8 segments) + pin joint at tip ──
@@ -684,18 +661,15 @@ private:
         float gripX = -4.3f * s;
         float gripZ =  1.50f * s;
         float len   = sqrtf(gripX*gripX + gripZ*gripZ);
-        float3 poleDir = { gripX / len, 0.0f, gripZ / len };
-
-        // Rotation of pole segments around Y axis
-        float ang = atan2f(poleDir.z, -poleDir.x);
-        quat segRot = { 0.0f, sinf(ang * 0.5f), 0.0f, cosf(ang * 0.5f) };
+        float3 poleDir = { -0.8660f, 0.0f, 0.5000f };
+        quat segRot = { 0.0f, -0.9659f, 0.0f, 0.2588f };
 
         float3 v0 = profile.takeoffVelocity();
         for (int i = 0; i < 8; i++) {
             float3 ctr = poleDir * ((halfSeg + i * segLen));
             poleSegs[i] = new Rigid(solver, segSz, 200.0f, 0.3f, ctr);
             poleSegs[i]->positionAng = segRot;
-            poleSegs[i]->velocityLin = v0;
+            if (applyInitialVelocity) poleSegs[i]->velocityLin = v0;
         }
 
         // Pin tip to ground anchor: INFINITY linear stiffness, 0 angular (free rotation)
@@ -705,29 +679,33 @@ private:
         float ks = profile.poleStiffness();
         for (int i = 0; i < 7; i++)
             new Joint(solver, poleSegs[i], poleSegs[i+1],
-                      { halfSeg,0,0}, {-halfSeg,0,0}, 1e6f, ks);
+                      { halfSeg,0,0}, {-halfSeg,0,0}, 5e4f, ks);
 
         // Grip joints: right hand on seg[7] (upper grip), left hand on seg[6] (lower grip)
+        // Grip joints: right hand on seg[7] center, left hand on seg[6] center
         gripR = new Joint(solver, rHand, poleSegs[7],
-                          {0,0,+0.05f*s}, { halfSeg,0,0}, 1e6f, 0.0f);
+                          {0,0,+0.05f*s}, {0,0,0}, 5e4f, 0.0f);
         gripL = new Joint(solver, lHand, poleSegs[6],
-                          {0,0,+0.05f*s}, {0,0,0},        1e6f, 0.0f);
+                          {0,0,+0.05f*s}, {0,0,0}, 5e4f, 0.0f);
     }
 
     // ── Suppress unwanted collisions ──
     void suppressCollisions()
     {
-        // All non-adjacent ragdoll pairs
+        // All ragdoll pairs — joints hold the ragdoll together; contact forces between
+        // adjacent segments cause explosive overlaps, so suppress all intra-body collisions.
         for (int i = 0; i < 17; i++)
             for (int j = i+1; j < 17; j++)
-                if (!parts[i]->constrainedTo(parts[j]))
-                    new IgnoreCollision(solver, parts[i], parts[j]);
+                new IgnoreCollision(solver, parts[i], parts[j]);
 
-        // All ragdoll vs pole segments (excluding grip pairs)
+        // Ragdoll vs ground — no floor collision; joints are the only constraints
+        for (int i = 0; i < 17; i++)
+            new IgnoreCollision(solver, groundBody, parts[i]);
+
+        // Ragdoll vs all pole segments — joints (grip) handle the connection, not contact
         for (int i = 0; i < 17; i++)
             for (int j = 0; j < 8; j++)
-                if (!parts[i]->constrainedTo(poleSegs[j]))
-                    new IgnoreCollision(solver, parts[i], poleSegs[j]);
+                new IgnoreCollision(solver, parts[i], poleSegs[j]);
 
         // Non-adjacent pole segment pairs
         for (int i = 0; i < 8; i++)

@@ -117,18 +117,18 @@ void Solver::defaultParams()
     // along with your strategy for incrementing the penalty parameters.
     // If the value is not in the right range, you may see slower convergance for complex scenes.
     // A minor upgrade from the paper is using separate betas for constraints of different units (eg linear vs angular).
-    betaLin = 10000.0f;
-    betaAng = 100.0f;
+    betaLin = 100.0f;
+    betaAng = 10.0f;
 
     // Alpha controls how much stabilization is applied. Higher values give slower and smoother
     // error correction, and lower values are more responsive and energetic. Tune this depending
     // on your desired constraint error response.
-    alpha = 0.99f;
+    alpha = 0.2f;
 
     // Gamma controls how much the penalty and lambda values are decayed each step during warmstarting.
     // This should always be < 1 so that the penalty values can decrease (unless you use a different
     // penalty parameter strategy which does not require decay).
-    gamma = 0.999f;
+    gamma = 0.98f;
 }
 
 void Solver::step()
@@ -168,7 +168,14 @@ void Solver::step()
         body->inertialLin = body->positionLin + body->velocityLin * dt;
         if (body->mass > 0)
             body->inertialLin += float3{0, 0, gravity} * (dt * dt);
-        body->inertialAng = body->positionAng + body->velocityAng * dt;
+        float3 w = body->velocityAng;
+quat dq = { w.x, w.y, w.z, 0.0f };
+dq = dq * body->positionAng;
+dq.x *= 0.5f * dt;
+dq.y *= 0.5f * dt;
+dq.z *= 0.5f * dt;
+dq.w *= 0.5f * dt;
+body->inertialAng = normalize(body->positionAng + dq);
 
         // Adaptive warmstart (See original VBD paper)
         float3 accel = (body->velocityLin - body->prevVelocityLin) / dt;
@@ -219,7 +226,13 @@ void Solver::step()
             float3 dxLin, dxAng;
             solve(lhsLin, lhsAng, lhsCross, -rhsLin, -rhsAng, dxLin, dxAng);
             body->positionLin = body->positionLin + dxLin;
-            body->positionAng = body->positionAng + dxAng;
+            quat dq = { dxAng.x, dxAng.y, dxAng.z, 0.0f };
+dq = dq * body->positionAng;
+dq.x *= 0.5f;
+dq.y *= 0.5f;
+dq.z *= 0.5f;
+dq.w *= 0.5f;
+body->positionAng = normalize(body->positionAng + dq);
         }
 
         // Dual update
@@ -236,7 +249,8 @@ void Solver::step()
         if (body->mass > 0)
         {
             body->velocityLin = (body->positionLin - body->initialLin) / dt;
-            body->velocityAng = (body->positionAng - body->initialAng) / dt;
+            quat dq = body->positionAng * conjugate(body->initialAng);
+body->velocityAng = float3{dq.x, dq.y, dq.z} * (2.0f / dt);
 
             // Hard clamp to prevent numerical explosion
             const float maxLin = 15.0f;
@@ -247,6 +261,10 @@ void Solver::step()
             };
             clamp3(body->velocityLin, maxLin);
             clamp3(body->velocityAng, maxAng);
+
+    // Global damping
+    body->velocityLin.x *= 0.995f; body->velocityLin.y *= 0.995f; body->velocityLin.z *= 0.995f;
+    body->velocityAng.x *= 0.98f; body->velocityAng.y *= 0.98f; body->velocityAng.z *= 0.98f;
         }
     }
 }

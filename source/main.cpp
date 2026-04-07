@@ -57,6 +57,7 @@ static float ppoState [STATE_DIM];
 static float ppoAction[ACTION_DIM];
 static float ppoLogprob = 0.0f;
 static float ppoValue   = 0.0f;
+static bool  g_ppoLearning = false;  // Start with PPO off — verify ragdoll first
 
 #define WinWidth 1280
 #define WinHeight 720
@@ -635,6 +636,7 @@ void ui()
             {
                 releaseDrag();
                 currScene = i;
+                pvSceneGlobal.applyInitialVelocity = g_ppoLearning;
                 scenes[currScene](solver);
             }
             if (selected)
@@ -646,6 +648,7 @@ void ui()
     if (ImGui::Button(" Reset "))
     {
         releaseDrag();
+        pvSceneGlobal.applyInitialVelocity = g_ppoLearning;
         scenes[currScene](solver);
     }
     ImGui::SameLine();
@@ -701,10 +704,15 @@ void ui()
         ImGui::SliderFloat("Increment (m)", &competition.increment, 0.05f, 0.30f);
 
         ImGui::Separator();
-        ImGui::Text("Training  |  Episodes: %d", ppoEpisode);
-        ImGui::Text("Ep Reward: %.1f    EMA: %.1f", ppoEpReward, ppoRecentAvg);
-        ImGui::Text("Rollout: %d / %d   eps: %d", rolloutBuf ? rolloutBuf->pos : 0, ROLLOUT_LEN,
-                    rolloutBuf ? rolloutBuf->episodeCount : 0);
+        ImGui::Checkbox("Enable Learning", &g_ppoLearning);
+        if (g_ppoLearning) {
+            ImGui::Text("Training  |  Episodes: %d", ppoEpisode);
+            ImGui::Text("Ep Reward: %.1f    EMA: %.1f", ppoEpReward, ppoRecentAvg);
+            ImGui::Text("Rollout: %d / %d   eps: %d", rolloutBuf ? rolloutBuf->pos : 0, ROLLOUT_LEN,
+                        rolloutBuf ? rolloutBuf->episodeCount : 0);
+        } else {
+            ImGui::TextDisabled("Learning off — ragdoll physics only");
+        }
         if (ImGui::Button("Reset Policy")) {
             delete ppoAgent;   ppoAgent   = new PPOAgent();
             delete rolloutBuf; rolloutBuf = new RolloutBuffer();
@@ -1003,70 +1011,80 @@ void mainLoop()
     input();
     ui();
 
-    // ── PPO pre-step: get state, sample action, apply to scene ──
-    if (!paused && currScene == POLE_VAULT_IDX && ppoAgent && rolloutBuf) {
+    // ── Pole vault: sync competition state, optionally apply PPO actions ──
+    if (!paused && currScene == POLE_VAULT_IDX) {
         pvSceneGlobal.crossbarHeight   = competition.barHeight;
         pvSceneGlobal.attemptsAtHeight = competition.attemptsAtHeight;
         pvSceneGlobal.bestHeight       = competition.bestHeight;
 
-        pvSceneGlobal.getState(ppoState);
-        ppoAgent->sample(ppoState, ppoAction, ppoLogprob, ppoValue);
+        if (g_ppoLearning && ppoAgent && rolloutBuf) {
+            pvSceneGlobal.getState(ppoState);
+            ppoAgent->sample(ppoState, ppoAction, ppoLogprob, ppoValue);
 
-        // Standards position: applied only at step 0 of each attempt
-        if (pvSceneGlobal.stepCount == 0) {
-            float rawX  = 0.40f + ppoAction[ACTION_DIM - 1] * 0.40f;
-            float clamped = rawX < 0.0f ? 0.0f : rawX > 0.80f ? 0.80f : rawX;
-            float stdsX = roundf(clamped * 100.0f) / 100.0f;
-            pvSceneGlobal.setStandardsPosition(stdsX);
+            // Standards position: applied only at step 0 of each attempt
+            if (pvSceneGlobal.stepCount == 0) {
+                float rawX  = 0.40f + ppoAction[ACTION_DIM - 1] * 0.40f;
+                float clamped = rawX < 0.0f ? 0.0f : rawX > 0.80f ? 0.80f : rawX;
+                float stdsX = roundf(clamped * 100.0f) / 100.0f;
+                pvSceneGlobal.setStandardsPosition(stdsX);
+            }
+
+            pvSceneGlobal.applyActions(ppoAction, solver->dt);
+            forceHist.record(ppoAction);
         }
-
-        pvSceneGlobal.applyActions(ppoAction, solver->dt);
-        forceHist.record(ppoAction);
+        // else: no muscle forces — ragdoll hangs under gravity, joints hold it together
     }
 
-    // Step solver and draw it
-    if (!paused)
+    // Step solver and draw it — freeze when observing ragdoll pose (learning off)
+    bool frozenForObservation = (currScene == POLE_VAULT_IDX && !g_ppoLearning);
+    if (!paused && !frozenForObservation)
         solver->step();
     drawSolver(solver);
 
-    // ── PPO post-step: check terminal, store rollout, update policy ──
-    if (!paused && currScene == POLE_VAULT_IDX && ppoAgent && rolloutBuf) {
+    // ── Pole vault post-step: terminal check + PPO rollout (learning only) ──
+    if (!paused && g_ppoLearning && currScene == POLE_VAULT_IDX) {
         auto res = pvSceneGlobal.checkTerminal();
 
-        float nextVal = 0.0f;
-        if (!res.done) {
-            float ns[STATE_DIM];
-            pvSceneGlobal.getState(ns);
-            nextVal = ppoAgent->getValue(ns);
-        }
+        if (ppoAgent && rolloutBuf) {
+            float nextVal = 0.0f;
+            if (!res.done) {
+                float ns[STATE_DIM];
+                pvSceneGlobal.getState(ns);
+                nextVal = ppoAgent->getValue(ns);
+            }
 
-        rolloutBuf->add(ppoState, ppoAction, res.reward, ppoValue, ppoLogprob, res.done);
-        ppoEpReward += res.reward;
+            rolloutBuf->add(ppoState, ppoAction, res.reward, ppoValue, ppoLogprob, res.done);
+            ppoEpReward += res.reward;
+
+            if (rolloutBuf->isFull() && rolloutBuf->episodeCount >= MIN_EPISODES_PER_UPDATE
+                && !ppoUpdateRunning) {
+                rolloutBuf->computeAdvantages(nextVal);
+                static RolloutBuffer updateBuf;
+                updateBuf = *rolloutBuf;
+                rolloutBuf->clear();
+                ppoUpdateRunning = true;
+                std::thread([]{
+                    ppoAgent->update(updateBuf);
+                    ppoUpdateRunning = false;
+                }).detach();
+            }
+        }
 
         if (res.done) {
             ppoRecentAvg = 0.95f * ppoRecentAvg + 0.05f * ppoEpReward;
             ppoEpisode++;
-            competition.update(res.outcome);
             ppoEpReward = 0.0f;
+            competition.update(res.outcome);
             forceHist.clear();
+            pvSceneGlobal.applyInitialVelocity = true;
             pvSceneGlobal.reset();
         }
 
-        if (rolloutBuf->isFull() && rolloutBuf->episodeCount >= MIN_EPISODES_PER_UPDATE
-            && !ppoUpdateRunning) {
-            rolloutBuf->computeAdvantages(nextVal);
-            static RolloutBuffer updateBuf;
-            updateBuf = *rolloutBuf;
-            rolloutBuf->clear();
-            ppoUpdateRunning = true;
-            std::thread([]{
-                ppoAgent->update(updateBuf);
-                ppoUpdateRunning = false;
-            }).detach();
-        }
-
-        pvSceneGlobal.drawExtras();
     }
+
+    // Always draw extras (bar line etc.) when on the pole vault scene
+    if (!paused && currScene == POLE_VAULT_IDX)
+        pvSceneGlobal.drawExtras();
 
     // ImGUI rendering
     ImGui::Render();

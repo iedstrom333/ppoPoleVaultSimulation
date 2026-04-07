@@ -120,6 +120,7 @@ struct JointLimit : Force
     float  minAngle; // lower bound (radians)
     float  maxAngle; // upper bound (radians)
     float  stiffness;
+    quat   restRel;  // rest relative orientation (bodyB * inv(bodyA) at construction)
 
     JointLimit(Solver* solver, Rigid* bodyA, Rigid* bodyB,
                float3 axisA, float minAngle, float maxAngle,

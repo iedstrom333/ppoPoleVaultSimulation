@@ -63,15 +63,20 @@ Force::~Force()
 JointLimit::JointLimit(Solver* solver, Rigid* bodyA, Rigid* bodyB,
                        float3 axisA, float minAngle, float maxAngle, float stiffness)
     : Force(solver, bodyA, bodyB), axisA(axisA), minAngle(minAngle), maxAngle(maxAngle), stiffness(stiffness)
-{}
+{
+    // Store rest relative orientation so limits are measured as deltas from initial pose
+    restRel = bodyB->positionAng * inverse(bodyA->positionAng);
+}
 
 float JointLimit::getCurrentAngle() const
 {
-    // Swing-twist decomposition: extract rotation of bodyB relative to bodyA around axisA
-    quat rel    = bodyB->positionAng * inverse(bodyA->positionAng);
+    // Measure angle RELATIVE TO REST POSE so limits are offsets from initial configuration.
+    // rel = current relative rotation * inverse(rest relative rotation)
+    quat curRel  = bodyB->positionAng * inverse(bodyA->positionAng);
+    quat delta   = curRel * inverse(restRel);
     float3 axisW = rotate(bodyA->positionAng, axisA);
-    float3 proj  = axisW * dot(float3{rel.x, rel.y, rel.z}, axisW);
-    quat twist   = normalize(quat{proj.x, proj.y, proj.z, rel.w});
+    float3 proj  = axisW * dot(float3{delta.x, delta.y, delta.z}, axisW);
+    quat twist   = normalize(quat{proj.x, proj.y, proj.z, delta.w});
     return 2.0f * atan2f(length(twist.vec()), twist.w) * sign(dot(twist.vec(), axisW));
 }
 
