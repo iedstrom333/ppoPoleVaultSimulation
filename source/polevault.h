@@ -14,7 +14,7 @@ struct AthleteProfile
     float heightM         = 1.80f;
     float weightKg        = 75.0f;
     float takeoffSpeedMs  = 8.5f;
-    float takeoffAngleDeg = 13.0f;
+    float takeoffAngleDeg = 20.0f;
 
     // Strength (1-rep max in kg)
     float benchPressKg    = 80.0f;
@@ -416,15 +416,17 @@ struct PoleVaultScene
         // ── Terminal conditions ──
 
         // Out-of-bounds: agent slingshotted or tumbled far from the runway
-        if (fabsf(hPos.y) > 5.0f || hPos.z < -3.0f || hPos.x < -20.0f || hPos.x > 5.0f) {
+        if (fabsf(hPos.y) > 5.0f || hPos.z < -3.0f || hPos.x < -20.0f) {
             prevOutcome = 0.67f;
             return { -100.0f, true, CompetitionState::Outcome::GroundHit };
         }
 
-        // Cleared: was above bar, bar not touched, now descending
-        if (wasAboveBar && !barTouchedThisAttempt && hPos.z < crossbarHeight) {
+        // Cleared: was above bar, bar not touched, now descending on the landing side
+        // Reward scales with bar height: 500 base + 100 per meter
+        if (wasAboveBar && !barTouchedThisAttempt && hPos.z < crossbarHeight && hPos.x > standardsX - 0.5f) {
             prevOutcome = 0.0f;
-            return { 100.0f, true, CompetitionState::Outcome::Cleared };
+            float clearReward = 500.0f + crossbarHeight * 100.0f;
+            return { clearReward, true, CompetitionState::Outcome::Cleared };
         }
 
         // Bar touched
@@ -445,8 +447,8 @@ struct PoleVaultScene
             return { 0.0f, true, CompetitionState::Outcome::Timeout };
         }
 
-        // Out of bounds — too far from runway or sideways
-        if (fabsf(hPos.y) > 5.0f || hPos.x < -20.0f || hPos.x > 10.0f || hPos.z > 20.0f) {
+        // Out of bounds — too far sideways or too high (landing zone extends to end of ground plane, x=15)
+        if (fabsf(hPos.y) > 5.0f || hPos.x < -20.0f || hPos.x > 15.0f || hPos.z > 20.0f) {
             prevOutcome = 0.67f;
             return { -50.0f, true, CompetitionState::Outcome::GroundHit };
         }
@@ -473,6 +475,13 @@ private:
     void applyJointTorque(Rigid* body, float3 worldTorque, float dt)
     {
         if (!body || body->mass == 0.0f) return;
+        // Clamp torque magnitude so random PPO actions can't inject unbounded impulses
+        const float maxTorque = 500.0f;
+        float tMag = sqrtf(worldTorque.x*worldTorque.x + worldTorque.y*worldTorque.y + worldTorque.z*worldTorque.z);
+        if (tMag > maxTorque) {
+            float s = maxTorque / tMag;
+            worldTorque.x *= s; worldTorque.y *= s; worldTorque.z *= s;
+        }
         float3 tLocal = rotate({ -body->positionAng.x, -body->positionAng.y,
                                   -body->positionAng.z,  body->positionAng.w }, worldTorque);
         float3 angAcc = {
@@ -484,15 +493,6 @@ private:
         body->velocityAng.x += angAccW.x * dt;
         body->velocityAng.y += angAccW.y * dt;
         body->velocityAng.z += angAccW.z * dt;
-
-        // Velocity damping to prevent runaway motion
-        float damp = 0.90f;
-        body->velocityAng.x *= damp;
-        body->velocityAng.y *= damp;
-        body->velocityAng.z *= damp;
-        body->velocityLin.x *= 0.98f;
-        body->velocityLin.y *= 0.98f;
-        body->velocityLin.z *= 0.98f;
     }
 
     // ── Build ground + anchor ──
@@ -613,7 +613,7 @@ float hx = -4.2329f;
         J(rLowerLeg, rFoot,    {0,0,-0.200f}, {-0.05f,0,+0.045f});
 
         // ── Angular joint limits (wide safe ranges for vault pose) ──
-        auto L = [&](Rigid* a, Rigid* b, float3 ax, float mn, float mx, float k=5e3f) {
+        auto L = [&](Rigid* a, Rigid* b, float3 ax, float mn, float mx, float k=500.f) {
             new JointLimit(solver, a, b, ax, rad(mn), rad(mx), k);
         };
         // Spine

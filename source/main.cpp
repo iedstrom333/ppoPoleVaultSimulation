@@ -790,18 +790,27 @@ void input()
 
     if (!touchOnly)
     {
-        bool mouseDragDown = ImGui::IsMouseDown(ImGuiMouseButton_Left) && !io.WantCaptureMouse;
-        float2 mousePos = {io.MousePos.x, io.MousePos.y};
-        if (mouseDragDown)
+        // Left-click drag: pan the camera target
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && !io.WantCaptureMouse)
         {
-            if (dragMode == DRAG_MODE_MOUSE && drag)
-                updateDragAtScreen(mousePos);
-            else if (!drag)
-                beginDragAtScreen(mousePos, DRAG_MODE_MOUSE);
-        }
-        else if (dragMode == DRAG_MODE_MOUSE)
-        {
-            releaseDrag();
+            int w, h;
+            SDL_GetWindowSize(Window, &w, &h);
+            if (h > 0)
+            {
+                float3 forward = normalize(camTarget - camEye);
+                float3 upHint  = {0, 0, 1};
+                float3 right   = cross(forward, upHint);
+                if (lengthSq(right) < 1.0e-8f)
+                    right = cross(forward, float3{0, 1, 0});
+                right = normalize(right);
+                float3 up = cross(right, forward);
+
+                float tanHalfFovY = tanf(0.5f * rad(kFovY_deg));
+                float scalePx = 2.0f * camDistance * tanHalfFovY / (float)h;
+
+                camTarget -= right * (io.MouseDelta.x * scalePx);
+                camTarget += up    * (io.MouseDelta.y * scalePx);
+            }
         }
     }
 

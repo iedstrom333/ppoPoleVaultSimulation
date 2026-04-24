@@ -91,8 +91,12 @@ void JointLimit::updatePrimal(Rigid* body, float /*alpha*/, float3x3& /*lhsLin*/
     else return; // within limits — no contribution
 
     float3   axisW = rotate(bodyA->positionAng, axisA);
+    // Cap the correction torque to avoid explosive forces from large violations
+    const float maxTau = 300.0f;
+    float tauMag = stiffness * fabsf(violation);
+    if (tauMag > maxTau) tauMag = maxTau;
     float3x3 Kaa   = outer(axisW, axisW) * stiffness;
-    float3   tau   = axisW * (stiffness * violation);
+    float3   tau   = axisW * (tauMag * (violation > 0.0f ? 1.0f : -1.0f));
 
     lhsAng += Kaa;
     if (body == bodyA) rhsAng += tau;  // push parent opposite direction

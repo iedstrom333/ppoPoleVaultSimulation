@@ -253,8 +253,8 @@ body->positionAng = normalize(body->positionAng + dq);
 body->velocityAng = float3{dq.x, dq.y, dq.z} * (2.0f / dt);
 
             // Hard clamp to prevent numerical explosion
-            const float maxLin = 15.0f;
-            const float maxAng = 2.0f;
+            const float maxLin = 20.0f;
+            const float maxAng = 15.0f;
             auto clamp3 = [](float3& v, float mx) {
                 float len = sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
                 if (len > mx) { float s = mx/len; v.x*=s; v.y*=s; v.z*=s; }
